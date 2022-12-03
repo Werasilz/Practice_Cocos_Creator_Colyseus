@@ -4,5 +4,8 @@
   "version": "3.5.1",
   "creator": {
     "version": "3.5.1"
+  },
+  "dependencies": {
+    "node.js": "^0.0.1-security"
   }
 }
