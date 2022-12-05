@@ -1,50 +1,75 @@
-import { _decorator, Component, Node } from 'cc';
-const { ccclass, property } = _decorator;
-
+import { _decorator, Component, game } from 'cc';
 import Colyseus from 'db://colyseus-sdk/colyseus.js';
+import { GameManager } from './GameManager';
+const { ccclass, property } = _decorator;
 
 @ccclass('NetworkManager')
 export class NetworkManager extends Component
 {
-    @property hostname = "localhost";
-    @property port = 2567;
-    @property useSSL = false;
-
-    client!: Colyseus.Client;
-    room!: Colyseus.Room;
-
-    start()
+    private static _instance: NetworkManager;
+    public static get Instance() { return this._instance; }
+    private constructor()
     {
-        // Instantiate Colyseus Client
-        // connects into (ws|wss)://hostname[:port]
-        this.client = new Colyseus.Client(`${this.useSSL ? "wss" : "ws"}://${this.hostname}${([443, 80].includes(this.port) || this.useSSL) ? "" : `:${this.port}`}`);
+        super();
+        if (NetworkManager._instance != null) return;
+        NetworkManager._instance = this;
+    }
 
-        // Connect into the room
-        this.connect();
+    @property private serverURL: string = "localhost";
+    @property private port: string = "2567";
+    client: Colyseus.Client | null = null;
+    room: Colyseus.Room | null = null;
+    maxPlayer: number = 2;
+
+    playerName: string;
+    playersName: string[] = [];
+
+    onLoad()
+    {
+        let endpoint: string = `ws://${this.serverURL}:${this.port}`;
+        this.client = new Colyseus.Client(endpoint);
+        game.addPersistRootNode(this.node);
     }
 
     async connect()
     {
-        try
+        this.room = await this.client!.joinOrCreate("my_room");
+        console.log("Client SessionID [%o]", this.room.sessionId);
+
+        // Send player name to server
+        this.room!.send("player-name", this.playerName);
+
+        let playerCount = 0;
+        this.room.state.players.onAdd = () =>
         {
-            this.room = await this.client.joinOrCreate("my_room");
+            playerCount++;
 
-            console.log("joined successfully!");
-            console.log("user's sessionId:", this.room.sessionId);
-
-            this.room.onStateChange((state) =>
+            if (playerCount === this.maxPlayer)
             {
-                console.log("onStateChange: ", state);
-            });
-
-            this.room.onLeave((code) =>
-            {
-                console.log("onLeave:", code);
-            });
-
-        } catch (e)
-        {
-            console.error(e);
+                this.onJoin();
+            }
         }
+        // Receive data from Server
+        this.room.onMessage("data", (data) =>
+        {
+            console.log("Receive data", data);
+        });
+
+        this.room.onMessage("broadcast-data", (data) =>
+        {
+            console.log("Receive data", data);
+            this.playersName.push(data);
+        });
+    }
+
+    onJoin()
+    {
+        console.log("Joined to room id [%o]", this.room.id);
+        this.room!.send("joined");
+
+        this.scheduleOnce(function ()
+        {
+            GameManager.Instance.updatePlayersName();
+        }, 1);
     }
 }
